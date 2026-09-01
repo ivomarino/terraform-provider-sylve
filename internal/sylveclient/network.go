@@ -10,9 +10,8 @@ import (
 // a "standard" switch, which requires >=1 physical port and is NOT
 // covered by this client yet: on a single-NIC host, standard-switch
 // creation binds the box's only physical interface into a new bridge,
-// which can sever the very connection managing it -- treated the same
-// way this repo already treats the atlantis/baar gateway VMs. See the
-// provider's dev notes.)
+// which can sever the very connection managing it -- the same class of
+// risk this provider treats any live gateway/router VM with elsewhere.)
 type ManualSwitch struct {
 	ID     int    `json:"id"`
 	Name   string `json:"name"`
