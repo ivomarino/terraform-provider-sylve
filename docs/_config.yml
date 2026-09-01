@@ -1,0 +1,23 @@
+title: terraform-provider-sylve
+description: >-
+  A Terraform provider for Sylve (https://sylve.io/) -- bhyve VMs, jails,
+  and ZFS on FreeBSD.
+remote_theme: just-the-docs/just-the-docs
+color_scheme: dark
+search_enabled: true
+heading_anchors: true
+aux_links:
+  "View on GitHub":
+    - "https://github.com/ivomarino/terraform-provider-sylve"
+aux_links_new_tab: true
+footer_content: >-
+  Not published on the Terraform Registry yet -- see the repo's README for
+  local dev_overrides usage in the meantime.
+
+plugins:
+  - jekyll-remote-theme
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - vendor/
