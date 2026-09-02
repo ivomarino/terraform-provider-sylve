@@ -1,0 +1,36 @@
+# Mirrors .github/workflows/ci.yml exactly, running on the fleet's own
+# Woodpecker build agents instead of GitHub-hosted runners. Go 1.27 needs
+# no custom base image (unlike amux's Rust pipeline) -- the official
+# golang image has everything this repo needs.
+when:
+  event: [push, pull_request, manual]
+
+labels:
+  hostname: build.virt04
+
+steps:
+  - name: gofmt
+    image: golang:1.27
+    commands:
+      - out=$(gofmt -l .)
+      - if [ -n "$out" ]; then echo "$out"; exit 1; fi
+
+  - name: vet
+    image: golang:1.27
+    commands:
+      - go vet ./...
+
+  - name: build
+    image: golang:1.27
+    commands:
+      - go build ./...
+
+  - name: test
+    image: golang:1.27
+    commands:
+      - go test ./...
+
+  - name: terraform-fmt-examples
+    image: hashicorp/terraform:1.9
+    commands:
+      - terraform fmt -check -recursive examples/
