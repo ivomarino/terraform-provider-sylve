@@ -9,7 +9,7 @@ project has no tagged releases yet, so everything to date lives under
 
 ### Changed
 
-- **Sylve `v0.3.0` compatibility (in progress).** Sylve's own `v0.3.0`
+- **Sylve `v0.3.0` compatibility.** Sylve's own `v0.3.0`
   release normalized endpoint paths, HTTP methods, and validation across
   most of its REST API. This provider was built and verified against
   `v0.2.3`'s exact behavior, so a real source-level diff between the two
@@ -33,14 +33,32 @@ project has no tagged releases yet, so everything to date lives under
     (body-carried CTID) to `PUT /api/jail/{ctid}/hardware/cpu` (CTID in
     the URL); memory equivalent at `.../hardware/ram`. Field names inside
     the request body (`cores`, `memory`) are unchanged.
-  - Further `sylve_vm`/`sylve_jail` sub-resource updates (storage,
-    network, snapshots, lifecycle actions, hardware/options endpoints)
-    are in progress — most of this provider's route surface changed
-    shape in the same direction (an identifier moved from a body field
-    or path suffix to a path prefix), tracked as this section grows.
-  - `sylve_zfs_filesystem`/`sylve_zfs_volume`/`sylve_network_object`/
-    `sylve_download` are believed unaffected (same paths in both
-    versions) — being verified live as each is reached, not assumed.
+  - `sylve_vm`/`sylve_jail` sub-resources (storage/network attach,
+    update, detach; snapshots create/list/delete/rollback; lifecycle
+    actions; every hardware/options endpoint) all moved the same
+    direction — an identifier that used to travel in the body or a
+    path suffix is now a path prefix. Storage/network *update* and
+    *detach* now require both the parent VM/jail's id and the
+    sub-resource's own id in the path, where v0.2.x only needed the
+    sub-resource id — a new required parameter on
+    `UpdateStorage`/`UpdateNetwork` as of this pass.
+  - `sylve_zfs_filesystem`/`sylve_zfs_volume`: edit and (for volumes)
+    flash moved their target GUID from the request body into the URL
+    path. **This one was wrongly predicted "unaffected" by the initial
+    route-path diff** — caught by actually checking the resource
+    against source rather than trusting that prediction, the same
+    discipline this compatibility pass used throughout.
+  - `sylve_network_object`/`sylve_download`: confirmed genuinely
+    unaffected, both by source diff and a live create/destroy cycle.
+- **Live-verified**, not just compiled: a real `sylve_manual_switch`
+  create → clean re-plan → destroy cycle, and a real `sylve_vm`
+  create → update (name + CPU count, exercising the renamed-endpoint
+  and path-prefix fixes together) → clean re-plan → destroy cycle,
+  both against a genuine `v0.3.0` instance. `sylve_jail` create was
+  exercised too (confirmed reaching real server-side validation, not a
+  routing 404) but not carried through a full cycle — blocked on an
+  unrelated base-rootfs prerequisite gap on the test host, not on
+  anything this compatibility pass changed.
 
 ## Earlier work (undated, predates this file)
 

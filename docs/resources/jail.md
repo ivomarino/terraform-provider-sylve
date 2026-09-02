@@ -64,5 +64,4 @@ resource "sylve_jail" "example" {
 
 ### Read-Only
 
-- `db_id` (Number) Sylve's own internal primary key for this jail -- NOT the same as ctid. Exposed only because SetJailName/SetJailDescription genuinely require it instead of ctid, unlike every other jail (and every VM) update endpoint; not meant to be referenced from other configuration.
 - `id` (String) Terraform resource identity -- the jail's CTID as a string.
