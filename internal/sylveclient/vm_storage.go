@@ -61,8 +61,10 @@ type AttachStorageParams struct {
 }
 
 func (c *Client) AttachStorage(ctx context.Context, p AttachStorageParams) error {
+	// v0.3.0: POST /api/vm/{rid}/storage -- rid moved to the URL path and
+	// out of the request body entirely (StorageAttachRequest.RID is
+	// `json:"-"` now); every other field name unchanged.
 	body := map[string]any{
-		"rid":              p.RID,
 		"name":             p.Name,
 		"attachType":       p.AttachType,
 		"storageType":      p.StorageType,
@@ -82,16 +84,19 @@ func (c *Client) AttachStorage(ctx context.Context, p AttachStorageParams) error
 	if p.HasBootOrder {
 		body["bootOrder"] = p.BootOrder
 	}
-	if err := c.do(ctx, "POST", "/api/vm/storage/attach", body, nil); err != nil {
+	if err := c.do(ctx, "POST", fmt.Sprintf("/api/vm/%d/storage", p.RID), body, nil); err != nil {
 		return fmt.Errorf("attaching storage %q to VM rid %d: %w", p.Name, p.RID, err)
 	}
 	return nil
 }
 
-// UpdateStorageParams mirrors StorageUpdateRequest -- note this
-// endpoint's "id" is the storage's own ID (VMStorage.ID), not the VM's
-// RID, unlike most VM-nested update endpoints.
+// UpdateStorageParams mirrors StorageUpdateRequest. v0.3.0 needs BOTH
+// the VM's RID and the storage's own ID (both moved into the URL path,
+// `PATCH /api/vm/{rid}/storage/{storageId}`) -- v0.2.x only needed the
+// storage ID (`PUT /api/vm/storage/update`, id-only in the body); RID is
+// a new required field on this struct as of this compat pass.
 type UpdateStorageParams struct {
+	RID              int
 	ID               int
 	Name             string
 	Emulation        string
@@ -104,11 +109,11 @@ type UpdateStorageParams struct {
 	ReadOnly         bool
 }
 
-// UpdateStorage changes an attached disk's mutable properties. PUT
-// /api/vm/storage/update.
+// UpdateStorage changes an attached disk's mutable properties. v0.3.0:
+// PATCH /api/vm/{rid}/storage/{storageId} (was PUT /api/vm/storage/update,
+// id-in-body only, in v0.2.x).
 func (c *Client) UpdateStorage(ctx context.Context, p UpdateStorageParams) error {
 	body := map[string]any{
-		"id":               p.ID,
 		"name":             p.Name,
 		"emulation":        p.Emulation,
 		"enable":           p.Enable,
@@ -121,17 +126,17 @@ func (c *Client) UpdateStorage(ctx context.Context, p UpdateStorageParams) error
 	if p.HasBootOrder {
 		body["bootOrder"] = p.BootOrder
 	}
-	return c.do(ctx, "PUT", "/api/vm/storage/update", body, nil)
+	return c.do(ctx, "PATCH", fmt.Sprintf("/api/vm/%d/storage/%d", p.RID, p.ID), body, nil)
 }
 
-// DetachStorage removes a disk/CD-ROM from a VM. POST
-// /api/vm/storage/detach -- despite "detach" in the name this is the
-// real delete (matches the source's own StorageDetach -> permanent
-// removal, not a reversible unplug); the target VM must be shut off,
-// same constraint as AttachStorage.
+// DetachStorage removes a disk/CD-ROM from a VM. v0.3.0: DELETE
+// /api/vm/{rid}/storage/{storageId}, empty body -- both rid and
+// storageId are now path params (was POST /api/vm/storage/detach with
+// both in the body). This IS the real delete (matches the source's own
+// StorageDetach -> permanent removal, not a reversible unplug); the
+// target VM must be shut off, same constraint as AttachStorage.
 func (c *Client) DetachStorage(ctx context.Context, rid, storageID int) error {
-	return c.do(ctx, "POST", "/api/vm/storage/detach",
-		map[string]any{"rid": rid, "storageId": storageID}, nil)
+	return c.do(ctx, "DELETE", fmt.Sprintf("/api/vm/%d/storage/%d", rid, storageID), nil, nil)
 }
 
 // GetVMStorage finds one storage entry nested under a VM by its own ID.

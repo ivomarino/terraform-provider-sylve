@@ -56,31 +56,37 @@ func (w vmNetworkWire) toVMNetwork() VMNetwork {
 // worth knowing if this ever mismatches on a VM with many NICs attached
 // in rapid succession.
 func (c *Client) AttachNetwork(ctx context.Context, rid int, switchName, emulation string, macID int) error {
-	body := map[string]any{"rid": rid, "switchName": switchName, "emulation": emulation}
+	// v0.3.0: POST /api/vm/{rid}/networks -- rid moved to the URL path
+	// (was in the body, POST /api/vm/network/attach, in v0.2.x); other
+	// field names unchanged.
+	body := map[string]any{"switchName": switchName, "emulation": emulation}
 	if macID > 0 {
 		body["macId"] = macID
 	}
-	if err := c.do(ctx, "POST", "/api/vm/network/attach", body, nil); err != nil {
+	if err := c.do(ctx, "POST", fmt.Sprintf("/api/vm/%d/networks", rid), body, nil); err != nil {
 		return fmt.Errorf("attaching network (switch %q) to VM rid %d: %w", switchName, rid, err)
 	}
 	return nil
 }
 
-// UpdateNetwork changes an attached NIC's switch/emulation/MAC. PUT
-// /api/vm/network/update -- identifies the target by its own network
-// ID, not the VM's rid.
-func (c *Client) UpdateNetwork(ctx context.Context, networkID int, switchName, emulation string, macID int) error {
-	body := map[string]any{"networkId": networkID, "switchName": switchName, "emulation": emulation}
+// UpdateNetwork changes an attached NIC's switch/emulation/MAC. v0.3.0:
+// PATCH /api/vm/{rid}/networks/{networkId} -- now needs BOTH the VM's
+// rid and the network's own ID in the path (v0.2.x only needed the
+// network ID, PUT /api/vm/network/update, id-in-body). rid is a new
+// required parameter on this method as of this compat pass.
+func (c *Client) UpdateNetwork(ctx context.Context, rid, networkID int, switchName, emulation string, macID int) error {
+	body := map[string]any{"switchName": switchName, "emulation": emulation}
 	if macID > 0 {
 		body["macId"] = macID
 	}
-	return c.do(ctx, "PUT", "/api/vm/network/update", body, nil)
+	return c.do(ctx, "PATCH", fmt.Sprintf("/api/vm/%d/networks/%d", rid, networkID), body, nil)
 }
 
-// DetachNetwork removes a NIC from a VM. POST /api/vm/network/detach.
+// DetachNetwork removes a NIC from a VM. v0.3.0: DELETE
+// /api/vm/{rid}/networks/{networkId}, empty body -- both path params now
+// (was POST /api/vm/network/detach with both in the body).
 func (c *Client) DetachNetwork(ctx context.Context, rid, networkID int) error {
-	return c.do(ctx, "POST", "/api/vm/network/detach",
-		map[string]any{"rid": rid, "networkId": networkID}, nil)
+	return c.do(ctx, "DELETE", fmt.Sprintf("/api/vm/%d/networks/%d", rid, networkID), nil, nil)
 }
 
 // getVMNetworks fetches the raw networks[] view for a VM and flattens it.

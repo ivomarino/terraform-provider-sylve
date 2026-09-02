@@ -167,7 +167,7 @@ func (r *vmNetworkResource) Update(ctx context.Context, req resource.UpdateReque
 		return
 	}
 
-	err = r.client.UpdateNetwork(ctx, id, plan.SwitchName.ValueString(), plan.Emulation.ValueString(), int(plan.MacID.ValueInt64()))
+	err = r.client.UpdateNetwork(ctx, int(state.RID.ValueInt64()), id, plan.SwitchName.ValueString(), plan.Emulation.ValueString(), int(plan.MacID.ValueInt64()))
 	if err != nil {
 		resp.Diagnostics.AddError("Error updating Sylve VM network", err.Error())
 		return

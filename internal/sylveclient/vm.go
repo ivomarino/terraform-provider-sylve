@@ -228,27 +228,31 @@ func (c *Client) GetVM(ctx context.Context, rid int) (*VM, error) {
 // disk files, and ZFS volumes. The non-force delete path 400s outright if
 // ANY of deletemacs/deleterawdisks/deletevolumes is missing from the
 // query string -- none of the three default to a value, all three are
-// mandatory (confirmed live, 2026-08-31, one round-trip per missing
-// param; see the provider's dev notes). Sylve's API 404s if the VM is
-// already gone; callers that want delete-is-idempotent semantics should
-// check IsNotFound.
+// mandatory. Path unchanged from v0.2.x (DELETE /api/vm/{rid}) --
+// v0.3.0 added a separate `force=true` shortcut with different (fewer)
+// required params plus a new registration-purge endpoint, neither used
+// here; confirmed the non-force path this client relies on still takes
+// the identical three params by reading RemoveVM directly, not assumed
+// from the changelog. Sylve's API 404s if the VM is already gone;
+// callers that want delete-is-idempotent semantics should check
+// IsNotFound.
 func (c *Client) DeleteVM(ctx context.Context, rid int) error {
 	return c.do(ctx, "DELETE",
 		fmt.Sprintf("/api/vm/%d?deletemacs=true&deleterawdisks=true&deletevolumes=true", rid),
 		nil, nil)
 }
 
-// SetVMName renames a VM. PUT /api/vm/name -- rid travels in the body,
-// not the URL (an earlier version of this client guessed a RESTful
-// /vm/{rid}/name shape that doesn't exist in the real API).
+// SetVMName renames a VM. v0.3.0: PATCH /api/vm/{rid}/name -- rid moved
+// from the body into the URL (v0.2.x was PUT /api/vm/name with rid in
+// the body); "name" field itself unchanged.
 func (c *Client) SetVMName(ctx context.Context, rid int, name string) error {
-	return c.do(ctx, "PUT", "/api/vm/name", map[string]any{"rid": rid, "name": name}, nil)
+	return c.do(ctx, "PATCH", fmt.Sprintf("/api/vm/%d/name", rid), map[string]any{"name": name}, nil)
 }
 
-// SetVMDescription updates a VM's description. PUT /api/vm/description,
-// same rid-in-body shape as SetVMName.
+// SetVMDescription updates a VM's description. v0.3.0: PATCH
+// /api/vm/{rid}/description, same rid-into-URL move as SetVMName.
 func (c *Client) SetVMDescription(ctx context.Context, rid int, description string) error {
-	return c.do(ctx, "PUT", "/api/vm/description", map[string]any{"rid": rid, "description": description}, nil)
+	return c.do(ctx, "PATCH", fmt.Sprintf("/api/vm/%d/description", rid), map[string]any{"description": description}, nil)
 }
 
 type cpuConfig struct {
@@ -258,50 +262,52 @@ type cpuConfig struct {
 	CPUPinning []any `json:"cpuPinning"`
 }
 
-// SetVMCPU reconfigures a VM's CPU topology. PUT
-// /api/vm/hardware/cpu/{rid} -- an earlier version of this client sent
-// this to /api/vm/{rid}/hardware/cpu, which doesn't exist (the `/vm`
-// group's hardware routes put :rid last, not right after /vm).
+// SetVMCPU reconfigures a VM's CPU topology. v0.3.0: PUT
+// /api/vm/{rid}/hardware/cpu -- rid moved from a path-suffix
+// (/api/vm/hardware/cpu/{rid} in v0.2.x) to a path-prefix, same
+// direction as every other rid-bearing endpoint in this file. Body
+// fields (cpuSockets/cpuCores/cpuThreads/cpuPinning) unchanged.
 func (c *Client) SetVMCPU(ctx context.Context, rid, cores, sockets, threads int) error {
-	return c.do(ctx, "PUT", fmt.Sprintf("/api/vm/hardware/cpu/%d", rid), cpuConfig{
+	return c.do(ctx, "PUT", fmt.Sprintf("/api/vm/%d/hardware/cpu", rid), cpuConfig{
 		CPUSockets: sockets, CPUCores: cores, CPUThreads: threads, CPUPinning: []any{},
 	}, nil)
 }
 
-// SetVMRAM reconfigures a VM's memory in bytes. PUT
-// /api/vm/hardware/ram/{rid} -- same path-shape correction as SetVMCPU.
+// SetVMRAM reconfigures a VM's memory in bytes. v0.3.0: PUT
+// /api/vm/{rid}/hardware/ram -- same rid-to-prefix move as SetVMCPU.
 func (c *Client) SetVMRAM(ctx context.Context, rid int, ramBytes int64) error {
-	return c.do(ctx, "PUT", fmt.Sprintf("/api/vm/hardware/ram/%d", rid), map[string]int64{"ram": ramBytes}, nil)
+	return c.do(ctx, "PUT", fmt.Sprintf("/api/vm/%d/hardware/ram", rid), map[string]int64{"ram": ramBytes}, nil)
 }
 
-// SetVMTimeOffset reconfigures a VM's RTC ("utc" or "localtime"). PUT
-// /api/vm/options/clock/{rid}.
+// SetVMTimeOffset reconfigures a VM's RTC ("utc" or "localtime"). v0.3.0:
+// PUT /api/vm/{rid}/options/clock.
 func (c *Client) SetVMTimeOffset(ctx context.Context, rid int, timeOffset string) error {
-	return c.do(ctx, "PUT", fmt.Sprintf("/api/vm/options/clock/%d", rid), map[string]string{"timeOffset": timeOffset}, nil)
+	return c.do(ctx, "PUT", fmt.Sprintf("/api/vm/%d/options/clock", rid), map[string]string{"timeOffset": timeOffset}, nil)
 }
 
-// SetVMTPM enables/disables TPM emulation. PUT /api/vm/options/tpm/{rid}.
+// SetVMTPM enables/disables TPM emulation. v0.3.0: PUT
+// /api/vm/{rid}/options/tpm.
 func (c *Client) SetVMTPM(ctx context.Context, rid int, enabled bool) error {
-	return c.do(ctx, "PUT", fmt.Sprintf("/api/vm/options/tpm/%d", rid), map[string]bool{"enabled": enabled}, nil)
+	return c.do(ctx, "PUT", fmt.Sprintf("/api/vm/%d/options/tpm", rid), map[string]bool{"enabled": enabled}, nil)
 }
 
-// SetVMQemuGuestAgent enables/disables the QEMU guest agent channel. PUT
-// /api/vm/options/qemu-guest-agent/{rid}.
+// SetVMQemuGuestAgent enables/disables the QEMU guest agent channel.
+// v0.3.0: PUT /api/vm/{rid}/options/qemu-guest-agent.
 func (c *Client) SetVMQemuGuestAgent(ctx context.Context, rid int, enabled bool) error {
-	return c.do(ctx, "PUT", fmt.Sprintf("/api/vm/options/qemu-guest-agent/%d", rid), map[string]bool{"enabled": enabled}, nil)
+	return c.do(ctx, "PUT", fmt.Sprintf("/api/vm/%d/options/qemu-guest-agent", rid), map[string]bool{"enabled": enabled}, nil)
 }
 
-// SetVMSerialConsole enables/disables the serial console. PUT
-// /api/vm/options/serial-console/{rid}.
+// SetVMSerialConsole enables/disables the serial console. v0.3.0: PUT
+// /api/vm/{rid}/options/serial-console.
 func (c *Client) SetVMSerialConsole(ctx context.Context, rid int, enabled bool) error {
-	return c.do(ctx, "PUT", fmt.Sprintf("/api/vm/options/serial-console/%d", rid), map[string]bool{"enabled": enabled}, nil)
+	return c.do(ctx, "PUT", fmt.Sprintf("/api/vm/%d/options/serial-console", rid), map[string]bool{"enabled": enabled}, nil)
 }
 
 // SetVMBootOrder updates start-at-boot and boot-order together -- both
 // fields travel in one request (ModifyBootOrderRequest), not two
-// separate endpoints. PUT /api/vm/options/boot-order/{rid}.
+// separate endpoints. v0.3.0: PUT /api/vm/{rid}/options/boot-order.
 func (c *Client) SetVMBootOrder(ctx context.Context, rid int, startAtBoot bool, bootOrder int) error {
-	return c.do(ctx, "PUT", fmt.Sprintf("/api/vm/options/boot-order/%d", rid),
+	return c.do(ctx, "PUT", fmt.Sprintf("/api/vm/%d/options/boot-order", rid),
 		map[string]any{"startAtBoot": startAtBoot, "bootOrder": bootOrder}, nil)
 }
 
@@ -352,7 +358,10 @@ func (c *Client) GetQGAInfo(ctx context.Context, rid int) (*QGAInfo, error) {
 	var out struct {
 		Data QGAInfo `json:"data"`
 	}
-	if err := c.do(ctx, "GET", fmt.Sprintf("/api/vm/qga/%d", rid), nil, &out); err != nil {
+	// v0.3.0: GET /api/vm/{rid}/guest-agent -- renamed outright from
+	// /api/vm/qga/{rid} (not just an rid-position move like most of this
+	// file's other endpoints), confirmed against the real route table.
+	if err := c.do(ctx, "GET", fmt.Sprintf("/api/vm/%d/guest-agent", rid), nil, &out); err != nil {
 		return nil, err
 	}
 	return &out.Data, nil
@@ -364,15 +373,20 @@ func (c *Client) GetQGAInfo(ctx context.Context, rid int) (*QGAInfo, error) {
 // with it -- there is no persisted enable flag to flip (see CloudInit's
 // own doc comment on the VM struct).
 func (c *Client) SetVMCloudInit(ctx context.Context, rid int, data, metadata, networkConfig string) error {
-	return c.do(ctx, "PUT", fmt.Sprintf("/api/vm/options/cloud-init/%d", rid), map[string]string{
+	// v0.3.0: PUT /api/vm/{rid}/options/cloud-init -- rid moved to prefix,
+	// body fields (data/metadata/networkConfig) unchanged.
+	return c.do(ctx, "PUT", fmt.Sprintf("/api/vm/%d/options/cloud-init", rid), map[string]string{
 		"data": data, "metadata": metadata, "networkConfig": networkConfig,
 	}, nil)
 }
 
-// VMAction is a lifecycle action queued via POST /vm/{action}/{rid} --
-// note the action comes first in the path, not the rid (another
-// real-API-shape correction; an earlier version of this client had it
-// backwards as /vm/{rid}/actions/{action}).
+// VMAction is a lifecycle action queued via POST /vm/{rid}/actions/{action}
+// (v0.3.0). v0.2.x had this the other way round --
+// POST /vm/{action}/{rid}, action first -- which was itself a correction
+// from an even earlier guess at a RESTful /vm/{rid}/actions/{action}
+// shape that didn't exist in v0.2.x. v0.3.0 genuinely moved TO that
+// RESTful shape -- confirmed via source, not assumed from the pattern
+// repeating.
 type VMAction string
 
 const (
@@ -385,7 +399,7 @@ const (
 // not that it completed -- see WaitForDomainStatus to actually wait for
 // the transition.
 func (c *Client) DoVMAction(ctx context.Context, rid int, action VMAction) error {
-	return c.do(ctx, "POST", fmt.Sprintf("/api/vm/%s/%d", action, rid), nil, nil)
+	return c.do(ctx, "POST", fmt.Sprintf("/api/vm/%d/actions/%s", rid, action), nil, nil)
 }
 
 // GetDomainStatus returns the VM's real, live libvirt/bhyve domain
@@ -403,7 +417,9 @@ func (c *Client) GetDomainStatus(ctx context.Context, rid int) (string, error) {
 			Status string `json:"status"`
 		} `json:"data"`
 	}
-	if err := c.do(ctx, "GET", fmt.Sprintf("/api/vm/domain/%d", rid), nil, &out); err != nil {
+	// v0.3.0: GET /api/vm/{rid}/domain -- rid moved to prefix (was
+	// /api/vm/domain/{rid}).
+	if err := c.do(ctx, "GET", fmt.Sprintf("/api/vm/%d/domain", rid), nil, &out); err != nil {
 		return "", err
 	}
 	return out.Data.Status, nil

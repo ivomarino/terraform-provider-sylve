@@ -285,6 +285,7 @@ func (r *vmStorageResource) Update(ctx context.Context, req resource.UpdateReque
 	}
 
 	params := sylveclient.UpdateStorageParams{
+		RID:              int(state.RID.ValueInt64()),
 		ID:               id,
 		Name:             plan.Name.ValueString(),
 		Emulation:        plan.Emulation.ValueString(),
