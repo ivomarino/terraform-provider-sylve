@@ -24,11 +24,14 @@ type manualSwitchListEnvelope struct {
 	} `json:"data"`
 }
 
-// CreateManualSwitch creates a manual switch. POST /api/network/manual-switch
-// -- the response carries no id/body (Data: nil in the source), so the
-// caller must list afterwards to learn it; see GetManualSwitchByName.
+// CreateManualSwitch creates a manual switch. POST
+// /api/network/switch/manual (moved here in Sylve v0.3.0 -- was
+// /api/network/manual-switch in v0.2.x, confirmed via a real source diff
+// against both tags, not just the changelog) -- the response carries no
+// id/body (Data: nil in the source), so the caller must list afterwards
+// to learn it; see GetManualSwitchByName.
 func (c *Client) CreateManualSwitch(ctx context.Context, name, bridge string) error {
-	err := c.do(ctx, "POST", "/api/network/manual-switch",
+	err := c.do(ctx, "POST", "/api/network/switch/manual",
 		map[string]string{"name": name, "bridge": bridge}, nil)
 	if err != nil {
 		return fmt.Errorf("creating manual switch %q: %w", name, err)
@@ -79,7 +82,7 @@ func (c *Client) GetManualSwitchByName(ctx context.Context, name string) (*Manua
 }
 
 // DeleteManualSwitch removes a manual switch. DELETE
-// /api/network/manual-switch/{id}.
+// /api/network/switch/manual/{id} (moved in v0.3.0, see CreateManualSwitch).
 func (c *Client) DeleteManualSwitch(ctx context.Context, id int) error {
-	return c.do(ctx, "DELETE", fmt.Sprintf("/api/network/manual-switch/%d", id), nil, nil)
+	return c.do(ctx, "DELETE", fmt.Sprintf("/api/network/switch/manual/%d", id), nil, nil)
 }

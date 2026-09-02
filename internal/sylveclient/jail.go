@@ -13,15 +13,13 @@ import (
 // internal/services/jail/jail.go: `data.CTID == nil || *data.CTID <= 0 ||
 // *data.CTID > 9999` => invalid_ct_id).
 type Jail struct {
-	// DBID is Sylve's own internal primary key -- NOT the same thing as
-	// CTID, and NOT interchangeable with it. Genuinely surprising:
-	// SetJailCPU/SetJailMemory take CTID, but SetJailName/
-	// SetJailDescription take DBID -- confirmed live, 2026-08-31, after
-	// CTID-based name/description update calls 500'd with
-	// failed_to_fetch_jail_ctid: record not found (see the provider's
-	// dev notes). VM has no equivalent split -- every VM update endpoint
-	// consistently takes RID.
-	DBID        int    `json:"id"`
+	// Prior to Sylve v0.3.0, SetJailName/SetJailDescription required the
+	// jail's internal database primary key instead of CTID (unlike every
+	// other jail/VM update endpoint, which all take the caller-facing
+	// CTID/RID) -- this provider used to carry that extra id (as DBID)
+	// purely to plumb it through to those two calls. Fixed upstream in
+	// v0.3.0: both endpoints now take CTID like everything else, so
+	// there's nothing left to carry.
 	CTID        int    `json:"ctId"`
 	Name        string `json:"name"`
 	Hostname    string `json:"hostname,omitempty"`
@@ -141,38 +139,43 @@ func (c *Client) GetJail(ctx context.Context, ctid int) (*Jail, error) {
 // DeleteJail removes a jail and (optionally) its MAC objects and root
 // filesystem. Like DeleteVM, both query params are mandatory with no
 // default -- omitting either 400s with a missing_..._param error naming
-// exactly that one (confirmed against the VM equivalent; not
-// re-verified live for jail specifically, same source pattern).
+// exactly that one. Path unchanged from v0.2.x (DELETE /api/jail/{ctid}),
+// confirmed against v0.3.0 source (parseRequiredJailBoolQuery for both
+// params, same as before).
 func (c *Client) DeleteJail(ctx context.Context, ctid int) error {
 	return c.do(ctx, "DELETE",
 		fmt.Sprintf("/api/jail/%d?deletemacs=true&deleterootfs=true", ctid),
 		nil, nil)
 }
 
-// SetJailName renames a jail. PUT /api/jail/name -- the body's "id" is
-// the jail's internal DB primary key (Jail.DBID), NOT its CTID; see
-// Jail.DBID's own doc comment for why that distinction matters here.
-func (c *Client) SetJailName(ctx context.Context, dbID int, name string) error {
-	return c.do(ctx, "PUT", "/api/jail/name", map[string]any{"id": dbID, "name": name}, nil)
+// SetJailName renames a jail. v0.3.0: PATCH /api/jail/{ctid}/name -- the
+// CTID-vs-internal-DB-primary-key bug that made this take Jail.DBID in
+// v0.2.x is fixed upstream (confirmed against source, jail.go:772:
+// UpdateJailName now calls parseJailCTID(c, "ctid") directly, same as
+// every other jail endpoint). Takes ctid now, not dbID -- DBID is gone
+// from this client entirely, see Jail struct's own comment.
+func (c *Client) SetJailName(ctx context.Context, ctid int, name string) error {
+	return c.do(ctx, "PATCH", fmt.Sprintf("/api/jail/%d/name", ctid), map[string]any{"name": name}, nil)
 }
 
-// SetJailDescription updates a jail's description. PUT
-// /api/jail/description, same DB-id-in-body shape as SetJailName.
-func (c *Client) SetJailDescription(ctx context.Context, dbID int, description string) error {
-	return c.do(ctx, "PUT", "/api/jail/description", map[string]any{"id": dbID, "description": description}, nil)
+// SetJailDescription updates a jail's description. v0.3.0: PATCH
+// /api/jail/{ctid}/description -- same CTID fix as SetJailName.
+func (c *Client) SetJailDescription(ctx context.Context, ctid int, description string) error {
+	return c.do(ctx, "PATCH", fmt.Sprintf("/api/jail/%d/description", ctid), map[string]any{"description": description}, nil)
 }
 
-// SetJailCPU reconfigures a jail's core count. PUT /api/jail/cpu, body
-// carries ctId (not id) -- confirmed against JailUpdateCPURequest.
+// SetJailCPU reconfigures a jail's core count. v0.3.0: PUT
+// /api/jail/{ctid}/hardware/cpu (ctid moved from body to path; "cores"
+// field name unchanged, confirmed against JailUpdateCPURequest).
 func (c *Client) SetJailCPU(ctx context.Context, ctid int, cores int) error {
-	return c.do(ctx, "PUT", "/api/jail/cpu", map[string]any{"ctId": ctid, "cores": cores}, nil)
+	return c.do(ctx, "PUT", fmt.Sprintf("/api/jail/%d/hardware/cpu", ctid), map[string]any{"cores": cores}, nil)
 }
 
-// SetJailMemory reconfigures a jail's memory limit in bytes. PUT
-// /api/jail/memory, body carries ctId -- confirmed against
-// JailUpdateMemoryRequest.
+// SetJailMemory reconfigures a jail's memory limit in bytes. v0.3.0: PUT
+// /api/jail/{ctid}/hardware/ram (ctid moved from body to path; "memory"
+// field name unchanged, confirmed against JailUpdateMemoryRequest).
 func (c *Client) SetJailMemory(ctx context.Context, ctid int, memoryBytes int) error {
-	return c.do(ctx, "PUT", "/api/jail/memory", map[string]any{"ctId": ctid, "memory": memoryBytes}, nil)
+	return c.do(ctx, "PUT", fmt.Sprintf("/api/jail/%d/hardware/ram", ctid), map[string]any{"memory": memoryBytes}, nil)
 }
 
 // JailAction is a lifecycle action queued via POST

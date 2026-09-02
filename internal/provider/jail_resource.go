@@ -39,7 +39,6 @@ type jailResource struct {
 // flat (same shape of gap as sylve_vm's storage_pool/switch_name).
 type jailResourceModel struct {
 	ID          types.String `tfsdk:"id"` // string form of ctid
-	DBID        types.Int64  `tfsdk:"db_id"`
 	CTID        types.Int64  `tfsdk:"ctid"`
 	Name        types.String `tfsdk:"name"`
 	Hostname    types.String `tfsdk:"hostname"`
@@ -81,14 +80,6 @@ func (r *jailResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 				Computed:      true,
 				Description:   "Terraform resource identity -- the jail's CTID as a string.",
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
-			},
-			"db_id": schema.Int64Attribute{
-				Computed: true,
-				Description: "Sylve's own internal primary key for this jail -- NOT the same as ctid. " +
-					"Exposed only because SetJailName/SetJailDescription genuinely require it instead " +
-					"of ctid, unlike every other jail (and every VM) update endpoint; not meant to be " +
-					"referenced from other configuration.",
-				PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
 			},
 			"ctid": schema.Int64Attribute{
 				Required: true,
@@ -271,7 +262,6 @@ func (r *jailResource) Create(ctx context.Context, req resource.CreateRequest, r
 	}
 
 	plan.ID = types.StringValue(strconv.Itoa(created.CTID))
-	plan.DBID = types.Int64Value(int64(created.DBID))
 	plan.Hostname = types.StringValue(created.Hostname)
 	plan.Description = types.StringValue(created.Description)
 	plan.Cores = types.Int64Value(int64(created.Cores))
@@ -305,7 +295,6 @@ func (r *jailResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 		return
 	}
 
-	state.DBID = types.Int64Value(int64(jail.DBID))
 	state.Name = types.StringValue(jail.Name)
 	state.Hostname = types.StringValue(jail.Hostname)
 	state.Description = types.StringValue(jail.Description)
@@ -334,16 +323,15 @@ func (r *jailResource) Update(ctx context.Context, req resource.UpdateRequest, r
 		return
 	}
 	ctid := int(state.CTID.ValueInt64())
-	dbID := int(state.DBID.ValueInt64())
 
 	if plan.Name.ValueString() != state.Name.ValueString() {
-		if err := r.client.SetJailName(ctx, dbID, plan.Name.ValueString()); err != nil {
+		if err := r.client.SetJailName(ctx, ctid, plan.Name.ValueString()); err != nil {
 			resp.Diagnostics.AddError("Error updating Sylve jail name", err.Error())
 			return
 		}
 	}
 	if plan.Description.ValueString() != state.Description.ValueString() {
-		if err := r.client.SetJailDescription(ctx, dbID, plan.Description.ValueString()); err != nil {
+		if err := r.client.SetJailDescription(ctx, ctid, plan.Description.ValueString()); err != nil {
 			resp.Diagnostics.AddError("Error updating Sylve jail description", err.Error())
 			return
 		}
@@ -362,7 +350,6 @@ func (r *jailResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	}
 
 	plan.ID = state.ID
-	plan.DBID = state.DBID
 	plan.CTID = state.CTID
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
