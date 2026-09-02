@@ -55,12 +55,16 @@ func (c *Client) CreateFilesystem(ctx context.Context, name, parent string, prop
 	return nil
 }
 
-// EditFilesystem sets properties on an existing filesystem dataset. PATCH
-// /api/zfs/datasets/filesystem -- guid identifies the target, not a URL
-// param.
+// EditFilesystem sets properties on an existing filesystem dataset.
+// v0.3.0: PATCH /api/zfs/datasets/filesystem/{guid} -- guid moved into
+// the URL path (v0.2.x carried it in the body instead, flat
+// PATCH /api/zfs/datasets/filesystem). Also gained a new
+// ReplicationDatasetMutationGuard middleware server-side, which should
+// be transparent unless replication (an opt-in v0.3.x feature) is
+// active on this dataset.
 func (c *Client) EditFilesystem(ctx context.Context, guid string, properties map[string]string) error {
-	return c.do(ctx, "PATCH", "/api/zfs/datasets/filesystem",
-		map[string]any{"guid": guid, "properties": properties}, nil)
+	return c.do(ctx, "PATCH", "/api/zfs/datasets/filesystem/"+guid,
+		map[string]any{"properties": properties}, nil)
 }
 
 // DeleteFilesystem removes a filesystem dataset by GUID.

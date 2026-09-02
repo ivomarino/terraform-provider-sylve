@@ -33,8 +33,10 @@ type vmSnapshotListEnvelope struct {
 // endpoints in this provider, this one returns the created object
 // directly -- no follow-up list/lookup needed.
 func (c *Client) CreateVMSnapshot(ctx context.Context, rid int, name, description string) (*VMSnapshot, error) {
+	// v0.3.0: POST /api/vm/{rid}/snapshots -- "snapshots" moved after rid
+	// (was /api/vm/snapshots/{rid}); body (name/description) unchanged.
 	var out vmSnapshotEnvelope
-	err := c.do(ctx, "POST", fmt.Sprintf("/api/vm/snapshots/%d", rid),
+	err := c.do(ctx, "POST", fmt.Sprintf("/api/vm/%d/snapshots", rid),
 		map[string]string{"name": name, "description": description}, &out)
 	if err != nil {
 		return nil, fmt.Errorf("creating snapshot %q of VM rid %d: %w", name, rid, err)
@@ -42,10 +44,11 @@ func (c *Client) CreateVMSnapshot(ctx context.Context, rid int, name, descriptio
 	return &out.Data, nil
 }
 
-// ListVMSnapshots returns every snapshot for a VM by RID.
+// ListVMSnapshots returns every snapshot for a VM by RID. v0.3.0: GET
+// /api/vm/{rid}/snapshots.
 func (c *Client) ListVMSnapshots(ctx context.Context, rid int) ([]VMSnapshot, error) {
 	var out vmSnapshotListEnvelope
-	if err := c.do(ctx, "GET", fmt.Sprintf("/api/vm/snapshots/%d", rid), nil, &out); err != nil {
+	if err := c.do(ctx, "GET", fmt.Sprintf("/api/vm/%d/snapshots", rid), nil, &out); err != nil {
 		return nil, err
 	}
 	return out.Data, nil
@@ -67,15 +70,17 @@ func (c *Client) GetVMSnapshot(ctx context.Context, rid, snapshotID int) (*VMSna
 	return nil, &apiError{StatusCode: 404, Body: fmt.Sprintf("snapshot id %d not found on VM rid %d", snapshotID, rid)}
 }
 
-// DeleteVMSnapshot removes a snapshot. DELETE /api/vm/snapshots/{rid}/{snapshotId}.
+// DeleteVMSnapshot removes a snapshot. v0.3.0: DELETE
+// /api/vm/{rid}/snapshots/{snapshotId} (was /api/vm/snapshots/{rid}/{snapshotId}).
 func (c *Client) DeleteVMSnapshot(ctx context.Context, rid, snapshotID int) error {
-	return c.do(ctx, "DELETE", fmt.Sprintf("/api/vm/snapshots/%d/%d", rid, snapshotID), nil, nil)
+	return c.do(ctx, "DELETE", fmt.Sprintf("/api/vm/%d/snapshots/%d", rid, snapshotID), nil, nil)
 }
 
-// RollbackVMSnapshot restores a VM to a prior snapshot. POST
-// /api/vm/snapshots/rollback/{rid}/{snapshotId} -- takes no request
+// RollbackVMSnapshot restores a VM to a prior snapshot. v0.3.0: POST
+// /api/vm/{rid}/snapshots/{snapshotId}/rollback (was
+// /api/vm/snapshots/rollback/{rid}/{snapshotId}) -- takes no request
 // body; the handler hardcodes "destroy more recent snapshots/state" on
 // the server side, there is no client-controllable option here.
 func (c *Client) RollbackVMSnapshot(ctx context.Context, rid, snapshotID int) error {
-	return c.do(ctx, "POST", fmt.Sprintf("/api/vm/snapshots/rollback/%d/%d", rid, snapshotID), nil, nil)
+	return c.do(ctx, "POST", fmt.Sprintf("/api/vm/%d/snapshots/%d/rollback", rid, snapshotID), nil, nil)
 }

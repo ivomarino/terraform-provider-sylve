@@ -31,8 +31,10 @@ type jailSnapshotListEnvelope struct {
 // CreateJailSnapshot takes a snapshot of a jail by CTID. Returns the
 // created object directly, same as CreateVMSnapshot.
 func (c *Client) CreateJailSnapshot(ctx context.Context, ctid int, name, description string) (*JailSnapshot, error) {
+	// v0.3.0: POST /api/jail/{ctid}/snapshots -- "snapshots" moved after
+	// ctid (was /api/jail/snapshots/{ctid}); body unchanged.
 	var out jailSnapshotEnvelope
-	err := c.do(ctx, "POST", fmt.Sprintf("/api/jail/snapshots/%d", ctid),
+	err := c.do(ctx, "POST", fmt.Sprintf("/api/jail/%d/snapshots", ctid),
 		map[string]string{"name": name, "description": description}, &out)
 	if err != nil {
 		return nil, fmt.Errorf("creating snapshot %q of jail ctid %d: %w", name, ctid, err)
@@ -40,10 +42,11 @@ func (c *Client) CreateJailSnapshot(ctx context.Context, ctid int, name, descrip
 	return &out.Data, nil
 }
 
-// ListJailSnapshots returns every snapshot for a jail by CTID.
+// ListJailSnapshots returns every snapshot for a jail by CTID. v0.3.0:
+// GET /api/jail/{ctid}/snapshots.
 func (c *Client) ListJailSnapshots(ctx context.Context, ctid int) ([]JailSnapshot, error) {
 	var out jailSnapshotListEnvelope
-	if err := c.do(ctx, "GET", fmt.Sprintf("/api/jail/snapshots/%d", ctid), nil, &out); err != nil {
+	if err := c.do(ctx, "GET", fmt.Sprintf("/api/jail/%d/snapshots", ctid), nil, &out); err != nil {
 		return nil, err
 	}
 	return out.Data, nil
@@ -65,15 +68,18 @@ func (c *Client) GetJailSnapshot(ctx context.Context, ctid, snapshotID int) (*Ja
 	return nil, &apiError{StatusCode: 404, Body: fmt.Sprintf("snapshot id %d not found on jail ctid %d", snapshotID, ctid)}
 }
 
-// DeleteJailSnapshot removes a snapshot. DELETE /api/jail/snapshots/{ctid}/{snapshotId}.
+// DeleteJailSnapshot removes a snapshot. v0.3.0: DELETE
+// /api/jail/{ctid}/snapshots/{snapshotId} (was
+// /api/jail/snapshots/{ctid}/{snapshotId}).
 func (c *Client) DeleteJailSnapshot(ctx context.Context, ctid, snapshotID int) error {
-	return c.do(ctx, "DELETE", fmt.Sprintf("/api/jail/snapshots/%d/%d", ctid, snapshotID), nil, nil)
+	return c.do(ctx, "DELETE", fmt.Sprintf("/api/jail/%d/snapshots/%d", ctid, snapshotID), nil, nil)
 }
 
-// RollbackJailSnapshot restores a jail to a prior snapshot. POST
-// /api/jail/snapshots/rollback/{ctid}/{snapshotId} -- no request body;
+// RollbackJailSnapshot restores a jail to a prior snapshot. v0.3.0: POST
+// /api/jail/{ctid}/snapshots/{snapshotId}/rollback (was
+// /api/jail/snapshots/rollback/{ctid}/{snapshotId}) -- no request body;
 // same "server hardcodes destroying newer state" shape as
 // RollbackVMSnapshot.
 func (c *Client) RollbackJailSnapshot(ctx context.Context, ctid, snapshotID int) error {
-	return c.do(ctx, "POST", fmt.Sprintf("/api/jail/snapshots/rollback/%d/%d", ctid, snapshotID), nil, nil)
+	return c.do(ctx, "POST", fmt.Sprintf("/api/jail/%d/snapshots/%d/rollback", ctid, snapshotID), nil, nil)
 }

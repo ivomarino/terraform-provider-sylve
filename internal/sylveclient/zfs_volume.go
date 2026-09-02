@@ -27,27 +27,30 @@ func (c *Client) CreateVolume(ctx context.Context, name, parent string, properti
 	return nil
 }
 
-// EditVolume sets properties on an existing volume. PATCH
-// /api/zfs/datasets/volume -- guid identifies the target, not a URL
-// param, same shape as EditFilesystem.
+// EditVolume sets properties on an existing volume. v0.3.0: PATCH
+// /api/zfs/datasets/volume/{guid} -- guid moved into the URL path, same
+// shape change as EditFilesystem (v0.2.x had it flat, guid in the body).
 func (c *Client) EditVolume(ctx context.Context, guid string, properties map[string]string) error {
-	return c.do(ctx, "PATCH", "/api/zfs/datasets/volume",
-		map[string]any{"guid": guid, "properties": properties}, nil)
+	return c.do(ctx, "PATCH", "/api/zfs/datasets/volume/"+guid,
+		map[string]any{"properties": properties}, nil)
 }
 
-// DeleteVolume removes a volume by GUID.
+// DeleteVolume removes a volume by GUID. Path unchanged across versions
+// (already guid-in-URL in v0.2.x).
 func (c *Client) DeleteVolume(ctx context.Context, guid string) error {
 	return c.do(ctx, "DELETE", "/api/zfs/datasets/volume/"+guid, nil, nil)
 }
 
 // FlashVolume writes a download's raw bytes directly onto an existing
 // volume -- literally a `dd`, per the source's own naming and behavior.
-// POST /api/zfs/datasets/volume/flash. This is the actual mechanism for
+// v0.3.0: POST /api/zfs/datasets/volume/{guid}/flash -- guid moved into
+// the URL path (v0.2.x was flat POST /api/zfs/datasets/volume/flash,
+// guid in the body alongside uuid). This is the actual mechanism for
 // getting a downloaded cloud image's contents onto a real ZFS volume;
 // there is no "create volume from image" combined operation, and no
 // per-VM copy-on-write semantics here -- flashing writes the image once,
 // onto that one volume.
 func (c *Client) FlashVolume(ctx context.Context, guid, downloadUUID string) error {
-	return c.do(ctx, "POST", "/api/zfs/datasets/volume/flash",
-		map[string]string{"guid": guid, "uuid": downloadUUID}, nil)
+	return c.do(ctx, "POST", "/api/zfs/datasets/volume/"+guid+"/flash",
+		map[string]string{"uuid": downloadUUID}, nil)
 }
