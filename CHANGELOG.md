@@ -48,8 +48,19 @@ project has no tagged releases yet, so everything to date lives under
     route-path diff** — caught by actually checking the resource
     against source rather than trusting that prediction, the same
     discipline this compatibility pass used throughout.
-  - `sylve_network_object`/`sylve_download`: confirmed genuinely
-    unaffected, both by source diff and a live create/destroy cycle.
+  - `sylve_network_object`: confirmed genuinely unaffected, both by
+    source diff and a live create/destroy cycle.
+  - `sylve_download`: routes unaffected, but a real behavioral break
+    was missed in the initial pass and found later, live, provisioning
+    a new download — the default `utype` value ("uncategorized" when
+    left unset) was still sending v0.2.3's spelling, "uncategoried" (a
+    genuine upstream typo, fixed server-side in v0.3.0's own source but
+    never updated in this provider's hardcoded client-side default).
+    v0.3.0's stricter server-side validation rejects the old spelling
+    outright (`download_request_unprocessable`), so any `sylve_download`
+    resource relying on the default (not setting `utype` explicitly)
+    would fail to create against a v0.3.0 instance. Fixed in the
+    default and the schema doc comment both.
 - **Live-verified**, not just compiled: a real `sylve_manual_switch`
   create → clean re-plan → destroy cycle, and a real `sylve_vm`
   create → update (name + CPU count, exercising the renamed-endpoint

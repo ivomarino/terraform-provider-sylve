@@ -91,8 +91,9 @@ func (r *downloadResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				Optional: true,
 				Computed: true,
 				Description: "\"base-rootfs\" (jail base archive), \"cloud-init\" (cloud-init-capable " +
-					"image, referenceable by a VM with cloud_init enabled), or \"uncategoried\" (default " +
-					"-- Sylve's own spelling, not a typo introduced here; not validated client-side, same " +
+					"image, referenceable by a VM with cloud_init enabled), or \"uncategorized\" (default " +
+					"-- as of Sylve v0.3.0; v0.2.3 spelled this same value \"uncategoried\", a real upstream " +
+					"typo fixed in v0.3.0, not a typo introduced here. Not validated client-side, same " +
 					"as this provider's other enum-shaped attributes -- an invalid value is rejected " +
 					"server-side instead). Immutable.",
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown(), stringplanmodifier.RequiresReplace()},
@@ -163,7 +164,15 @@ func (r *downloadResource) Create(ctx context.Context, req resource.CreateReques
 
 	uType := plan.UType.ValueString()
 	if uType == "" {
-		uType = "uncategoried"
+		// v0.3.0 fixed a real upstream spelling bug: the "uncategorized"
+		// utype was previously spelled "uncategoried" (missing the "z"),
+		// confirmed via a source diff between the v0.2.3 and v0.3.0
+		// vendored copies (internal/db/models/utilities/downloads.go).
+		// Sylve's server-side utype validation now rejects the old
+		// spelling outright (download_request_unprocessable), so this
+		// client-side default has to track the corrected spelling too --
+		// found live provisioning a cloud-init-capable download resource.
+		uType = "uncategorized"
 	}
 	url := plan.URL.ValueString()
 

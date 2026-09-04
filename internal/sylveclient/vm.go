@@ -419,7 +419,21 @@ func (c *Client) GetDomainStatus(ctx context.Context, rid int) (string, error) {
 	}
 	// v0.3.0: GET /api/vm/{rid}/domain -- rid moved to prefix (was
 	// /api/vm/domain/{rid}).
-	if err := c.do(ctx, "GET", fmt.Sprintf("/api/vm/%d/domain", rid), nil, &out); err != nil {
+	//
+	// FOUND LIVE: a multi-host deployment can genuinely have some hosts
+	// still on a pre-v0.3.0 Sylve build while others have been upgraded --
+	// the old hosts only serve the pre-migration path; hitting the new
+	// path there 404s through to Sylve's own SPA (returns index.html, not
+	// JSON, hence the "invalid character '<'" decode error this used to
+	// surface verbatim). Rather than pin this whole client to one API
+	// generation, try the new path first and fall back to the old one on
+	// ANY failure from it -- cheap (worst case one extra round-trip per
+	// call, only on hosts that actually need it) and self-adapting per-host
+	// rather than needing a version flag threaded through every caller.
+	if err := c.do(ctx, "GET", fmt.Sprintf("/api/vm/%d/domain", rid), nil, &out); err == nil {
+		return out.Data.Status, nil
+	}
+	if err := c.do(ctx, "GET", fmt.Sprintf("/api/vm/domain/%d", rid), nil, &out); err != nil {
 		return "", err
 	}
 	return out.Data.Status, nil
