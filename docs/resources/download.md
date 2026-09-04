@@ -52,7 +52,7 @@ resource "sylve_download" "local_iso" {
 - `automatic_raw_conversion` (Boolean) Automatically convert a cloud image (e.g. qcow2) to raw after fetch. Immutable.
 - `filename` (String) Destination filename. Defaults to the URL/path's own basename. Immutable.
 - `ignore_tls` (Boolean) Skip TLS certificate verification for an https:// url. Immutable.
-- `utype` (String) "base-rootfs" (jail base archive), "cloud-init" (cloud-init-capable image, referenceable by a VM with cloud_init enabled), or "uncategoried" (default -- Sylve's own spelling, not a typo introduced here; not validated client-side, same as this provider's other enum-shaped attributes -- an invalid value is rejected server-side instead). Immutable.
+- `utype` (String) "base-rootfs" (jail base archive), "cloud-init" (cloud-init-capable image, referenceable by a VM with cloud_init enabled), or "uncategorized" (default -- as of Sylve v0.3.0; v0.2.3 spelled this same value "uncategoried", a real upstream typo fixed in v0.3.0, not a typo introduced here. Not validated client-side, same as this provider's other enum-shaped attributes -- an invalid value is rejected server-side instead). Immutable.
 
 ### Read-Only
 
