@@ -7,6 +7,36 @@ project has no tagged releases yet, so everything to date lives under
 
 ## Unreleased
 
+### Documentation
+
+- **Debian 13 (trixie) cloud-init on this provider: three real bugs,
+  found standing up a fresh genericcloud VM end-to-end.** No provider
+  code changed for these — they're operational findings, added to
+  README's "Known quirks" and the flagship cloud-init example, since the
+  example as previously written would reproduce an indefinite boot hang
+  on Debian 13 specifically:
+  - `systemd-networkd-wait-online.service` can hang the boot forever,
+    regardless of static/DHCP content in `cloud_init_network_config` —
+    a documented, known Debian-13 + cloud-init bug (matching an open
+    systemd upstream issue), not anything specific to Sylve or this
+    provider. Fix: bypass `cloud_init_network_config`'s own rendering
+    entirely via `network: {config: disabled}` + a hand-written
+    `systemd-networkd` unit, with `systemctl mask
+    systemd-networkd-wait-online.service` alongside it.
+  - `qemu-guest-agent` is not pre-installed on Debian's genericcloud
+    image (a wrong assumption in the original example) — needs
+    installing as a *late* `runcmd` step, not `packages:`, to avoid
+    racing the network-config fix above.
+  - A real debugging trap: a VM's raw bhyve tap name (e.g. `tap6`) never
+    appears in a host bridge's live member list even when the VM is
+    perfectly healthy — libvirt renames it to `vnetN` on successful
+    attach. Match on the tap-side MAC (same last 5 bytes as the guest's
+    own MAC) to confirm which `vnetN` is which, not the tap name.
+- Corrected a stale version reference: the intro claimed request/response
+  shapes were derived from Sylve `v0.2.3` source, which was true when
+  first written but not since the `v0.3.0` compatibility pass below —
+  now says `v0.3.0`.
+
 ### Changed
 
 - **Sylve `v0.3.0` compatibility.** Sylve's own `v0.3.0`

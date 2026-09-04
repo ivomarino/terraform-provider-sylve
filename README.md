@@ -8,7 +8,7 @@ Not published to the Terraform Registry (yet) — see [Installing](#installing) 
 for how to use it locally in the meantime.
 
 Every request/response shape here was derived from Sylve's actual
-source (`v0.2.3`), not just its swagger spec — the two disagree in
+source (`v0.3.0`), not just its swagger spec — the two disagree in
 several places, and the swagger spec undercounts real required-ness on
 more than one field. Every resource has been exercised against a real,
 running Sylve instance: create, read-after-import, in-place update,
@@ -160,33 +160,45 @@ resource "sylve_vm" "debian" {
         sudo: ALL=(ALL) NOPASSWD:ALL
         ssh_authorized_keys:
           - ssh-ed25519 AAAA... you@example.com
-    packages:
-      - qemu-guest-agent
+    # `network: {config: disabled}` + a hand-written systemd-networkd unit
+    # below, rather than letting cloud-init render `cloud_init_network_config`
+    # itself -- required specifically for Debian 13 (trixie) images, see
+    # "Known quirks" below for why. This directive fails cloud-init's own
+    # strict schema check (`cloud-init status` will report "error") but the
+    # NoCloud datasource applies it anyway; that's expected, not a sign
+    # something is broken.
+    network:
+      config: disabled
+    write_files:
+      - path: /etc/systemd/network/10-enp0s3.network
+        content: |
+          [Match]
+          Name=enp0s3
+
+          [Network]
+          Address=192.0.2.50/24
+          Gateway=192.0.2.1
+          DNS=192.0.2.1
+    bootcmd:
+      # Prevents an indefinite boot hang on Debian 13 -- see "Known quirks".
+      - systemctl mask systemd-networkd-wait-online.service
     runcmd:
+      - systemctl enable systemd-networkd
+      - systemctl restart systemd-networkd
+      - ip link set enp0s3 up
+      # qemu-guest-agent is NOT pre-installed on Debian's genericcloud
+      # image -- installed here as a LATE runcmd step deliberately, not
+      # via `packages:` (which runs in an earlier stage, before the
+      # `systemctl restart systemd-networkd` above has actually applied
+      # the real network config, and would race it).
+      - apt-get update
+      - apt-get install -y qemu-guest-agent
       - systemctl enable --now qemu-guest-agent
   EOT
 
   cloud_init_metadata = <<-EOT
     instance-id: my-debian-vm
     local-hostname: my-debian-vm
-  EOT
-
-  # Reference the interface by its concrete name (as cloud-init's own
-  # log reports it, e.g. "enp0s3") -- Debian's default cloud-init
-  # renderer does NOT support netplan/networkd-style `match:`/`set-name`
-  # v2 syntax. Using it silently leaves the NIC unconfigured; see "Known
-  # quirks" below.
-  cloud_init_network_config = <<-EOT
-    version: 2
-    ethernets:
-      enp0s3:
-        dhcp4: false
-        addresses:
-          - 192.0.2.50/24
-        gateway4: 192.0.2.1
-        nameservers:
-          addresses:
-            - 192.0.2.1
   EOT
 
   qemu_guest_agent = true
@@ -260,6 +272,41 @@ by testing against a live instance, not by reading source alone:
   networkd/netplan-style `match:`/`set-name` syntax in
   `cloud_init_network_config` — reference the interface by its concrete
   name instead.
+- **Debian 13 (trixie) specifically: `systemd-networkd-wait-online.service`
+  can hang the boot indefinitely**, regardless of whether
+  `cloud_init_network_config` uses static or DHCP content, and regardless
+  of the `match:`/literal-name question above. This is a documented,
+  known Debian-13 + cloud-init bug (not specific to Sylve or this
+  provider) — matching public reports of the identical symptom and an
+  [open systemd upstream issue](https://github.com/systemd/systemd/issues/33760):
+  `wait-online` can wait forever on an interface that cloud-init's own
+  netplan rendering left "unmanaged" by `systemd-networkd`. Masking the
+  unit (`systemctl mask systemd-networkd-wait-online.service` via
+  `bootcmd`) unblocks boot, but only fixes the symptom — the interface
+  can still never actually come up at Layer 2 while
+  `cloud_init_network_config`'s own rendering pipeline is what's used.
+  The reliable fix for this specific Debian release is to bypass that
+  rendering entirely: `network: {config: disabled}` plus a hand-written
+  `/etc/systemd/network/*.network` unit via `write_files`, with a
+  `systemctl restart systemd-networkd` in `runcmd` once that file is in
+  place (see the flagship example above, which does exactly this).
+  `cloud_init_network_config` itself is still a fine, real field for
+  other distros/releases that don't hit this bug.
+- **`qemu-guest-agent` is not pre-installed on Debian's genericcloud
+  image.** Install it via `packages:` only if you're not also working
+  around the bug above — otherwise install it as a *late* `runcmd` step
+  instead: `packages:` runs in cloud-init's earlier "config" stage,
+  before a `runcmd`-driven `systemctl restart systemd-networkd` has
+  applied the real network config, so an apt install attempted in
+  `packages:` can race a not-yet-up network.
+- **Debugging a NIC that won't come up**: a VM's raw bhyve launch-time
+  tap name (e.g. `tap6`) is not what shows up in the host bridge's live
+  member list once actually attached — libvirt renames it to `vnetN` on
+  successful attach. Don't go looking for the raw tap name there, even
+  on a perfectly healthy VM; it will never appear. To confirm which
+  `vnetN` belongs to which VM, match the interface's `ether` field
+  against the guest's own MAC — the tap-side MAC shares the same last 5
+  bytes as the guest-side one.
 - **A ZFS filesystem's `parent` is silently discarded** by Sylve's own
   create API — the real value has to also be present inside
   `properties["parent"]`. This provider hides that behind one `parent`
