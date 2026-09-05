@@ -27,8 +27,15 @@ type VM struct {
 	TimeOffset  string `json:"timeOffset"` // "utc" or "localtime"
 
 	VNCPort       int    `json:"vncPort"`
+	VNCBind       string `json:"vncBind,omitempty"`
 	VNCPassword   string `json:"vncPassword,omitempty"`
 	VNCResolution string `json:"vncResolution,omitempty"`
+	// VNCEnabled is not exposed as its own schema attribute (see
+	// vnc_port's doc comment in vm_resource.go) -- tracked here only so
+	// SetVMVNC can re-fetch and echo back the live value unchanged when
+	// updating vnc_bind, rather than risk resetting it to the Go zero
+	// value (false) on every VNC update.
+	VNCEnabled bool `json:"vncEnabled"`
 	// VNCWait is genuinely dangerous to leave unset: the create service
 	// defaults a nil/omitted VNCWait to TRUE (pauses the guest CPU until
 	// a VNC client connects -- confirmed live, 2026-09-01, a VM created
@@ -121,6 +128,7 @@ type createVMRequest struct {
 	RAM        int64 `json:"ram"`
 
 	VNCPort       int    `json:"vncPort"`
+	VNCBind       string `json:"vncBind,omitempty"`
 	VNCPassword   string `json:"vncPassword,omitempty"`
 	VNCResolution string `json:"vncResolution,omitempty"`
 	// *bool, not bool -- must always be sent non-nil (see VNCWait's own
@@ -179,6 +187,7 @@ func (c *Client) CreateVM(ctx context.Context, in VM) (*VM, error) {
 		CPUThreads:             in.CPUThreads,
 		RAM:                    in.RAM,
 		VNCPort:                in.VNCPort,
+		VNCBind:                in.VNCBind,
 		VNCPassword:            in.VNCPassword,
 		VNCResolution:          in.VNCResolution,
 		Serial:                 in.Serial,
@@ -301,6 +310,59 @@ func (c *Client) SetVMQemuGuestAgent(ctx context.Context, rid int, enabled bool)
 // /api/vm/{rid}/options/serial-console.
 func (c *Client) SetVMSerialConsole(ctx context.Context, rid int, enabled bool) error {
 	return c.do(ctx, "PUT", fmt.Sprintf("/api/vm/%d/options/serial-console", rid), map[string]bool{"enabled": enabled}, nil)
+}
+
+// vncConfig mirrors libvirtServiceInterfaces.ModifyVNCRequest exactly
+// (v0.3.0, internal/interfaces/services/libvirt/vm.go) -- confirmed
+// directly against source rather than assumed: vncEnabled/vncResolution/
+// vncWait are all binding:"required" server-side, so this always sends
+// explicit values for them via SetVMVNC below, never a Go zero value by
+// accident. Note this struct has NO pciDevices field -- an earlier
+// comment on vnc_port's own schema attribute (vm_resource.go) claimed
+// ModifyVNC required one, which was true of neither the request struct
+// actually bound by the handler nor the live v0.3.0 API; corrected
+// there when vnc_bind was added here.
+type vncConfig struct {
+	VNCEnabled    *bool  `json:"vncEnabled"`
+	VNCPort       int    `json:"vncPort"`
+	VNCBind       string `json:"vncBind"`
+	VNCResolution string `json:"vncResolution"`
+	VNCPassword   string `json:"vncPassword"`
+	VNCWait       *bool  `json:"vncWait"`
+}
+
+// SetVMVNC reconfigures a VM's VNC settings -- port/bind/resolution/
+// password/wait are the caller's desired new values. vncEnabled is NOT
+// tracked by this resource's own schema at all (see vnc_port's doc
+// comment in vm_resource.go), so this always re-fetches the live VM
+// first and echoes its existing vncEnabled back unchanged rather than
+// risk resetting it -- the same defensive pattern used throughout this
+// file for fields this resource doesn't fully model (e.g. pci_devices
+// on ModifyPassthroughDevices).
+//
+// v0.3.0: PUT /api/vm/{rid}/hardware/vnc. Sylve requires this VM be
+// Shutoff first (confirmed via the handler's own doc comment: "Replace
+// the VNC configuration of a shut-off virtual machine") -- this method
+// does NOT stop/start the VM itself; see vm_resource.go's Update(),
+// which does that around this call specifically when vnc_bind changes
+// (the only VNC field this resource updates in place -- vnc_port/
+// vnc_password/vnc_resolution/vnc_wait are still RequiresReplace,
+// unchanged by this addition; see that schema attribute's own comment
+// for why).
+func (c *Client) SetVMVNC(ctx context.Context, rid int, port int, bind, resolution, password string, wait bool) error {
+	current, err := c.GetVM(ctx, rid)
+	if err != nil {
+		return fmt.Errorf("fetching current VM %d before VNC update: %w", rid, err)
+	}
+	enabled := current.VNCEnabled
+	return c.do(ctx, "PUT", fmt.Sprintf("/api/vm/%d/hardware/vnc", rid), vncConfig{
+		VNCEnabled:    &enabled,
+		VNCPort:       port,
+		VNCBind:       bind,
+		VNCResolution: resolution,
+		VNCPassword:   password,
+		VNCWait:       &wait,
+	}, nil)
 }
 
 // SetVMBootOrder updates start-at-boot and boot-order together -- both

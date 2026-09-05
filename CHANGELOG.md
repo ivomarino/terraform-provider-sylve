@@ -101,6 +101,58 @@ project has no tagged releases yet, so everything to date lives under
   unrelated base-rootfs prerequisite gap on the test host, not on
   anything this compatibility pass changed.
 
+### Added
+
+- **`sylve_vm`: new `vnc_bind` attribute**, updated in place (no
+  recreate). Controls which IP the VNC listener binds to on the
+  hypervisor -- defaults to Sylve's own `"127.0.0.1"` if left unset.
+  Added because rebinding VNC to a LAN-facing address for testing is a
+  real, legitimate thing to want on an already-populated,
+  `prevent_destroy`'d VM, and the previous `RequiresReplace` on every
+  VNC field made that a destroy/recreate round-trip.
+
+### Fixed
+
+- **`sylve_vm`: `vnc_password` had no way to actually disable VNC
+  authentication.** Confirmed directly against Sylve's own source
+  (`updateVNC`): any non-empty string, including the literal word
+  `"disabled"`, becomes the real VNC password -- there is no special
+  sentinel value. `vnc_password = "disabled"` was previously
+  `RequiresReplace`'d like the rest of the VNC fields; it's now updated
+  in place (alongside `vnc_bind` above), and an **empty string** is the
+  only way to get genuine unauthenticated VNC. If you were relying on
+  `"disabled"` meaning "no auth", it never did -- that's been a real
+  (if silly) password the whole time.
+- **`sylve_vm`: a VNC update landing in the same `apply` as a
+  cloud-init change could 409.** Both `ModifyVNC` and
+  `ModifyCloudInitData` require the VM be `Shutoff` first; each used to
+  stop/modify/start independently, so if the VNC block's own restart
+  already brought the VM back to `Running` by the time the cloud-init
+  block ran, that second call failed with
+  `domain_state_not_shutoff` even though nothing about the cloud-init
+  change itself was wrong. Fixed by computing one shared "does this
+  apply need the VM stopped" flag, stopping once, applying whichever
+  group(s) actually changed, and starting back up once.
+
+### OpenTofu compatibility
+
+- **Confirmed working, with one real caveat worth knowing.** Ran real
+  `tofu plan`/`tofu apply` against live state with this provider loaded
+  via `dev_overrides` -- OpenTofu (tested: 1.12.6) does NOT skip
+  dependency-lock-file validation for a dev-override'd provider the way
+  classic Terraform does, so `dev_overrides` alone isn't enough for a
+  provider that's never published anywhere (this one, for now): both
+  `tofu init` and `tofu plan` fail with `Inconsistent dependency lock
+  file` / `provider registry ... does not have a provider named ...`.
+  This is a confirmed, currently open upstream OpenTofu bug
+  ([opentofu/opentofu#1715](https://github.com/opentofu/opentofu/issues/1715)),
+  not anything wrong in this provider. **Fix**: add a real
+  `filesystem_mirror` for this provider (a legitimate installation
+  method with its own lock-file entry, unlike `dev_overrides`) alongside
+  `dev_overrides` in your CLI config -- see the updated
+  [Installing](README.md#installing) section for the exact layout.
+  Once published to a real registry this whole caveat goes away.
+
 ## Earlier work (undated, predates this file)
 
 - Initial resource set built and live-verified against a real Sylve

@@ -53,6 +53,7 @@ type vmResourceModel struct {
 	TimeOffset  types.String `tfsdk:"time_offset"`
 
 	VNCPort       types.Int64  `tfsdk:"vnc_port"`
+	VNCBind       types.String `tfsdk:"vnc_bind"`
 	VNCPassword   types.String `tfsdk:"vnc_password"`
 	VNCResolution types.String `tfsdk:"vnc_resolution"`
 	VNCWait       types.Bool   `tfsdk:"vnc_wait"`
@@ -137,30 +138,96 @@ func (r *vmResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *r
 				Description:   "\"utc\" (default) or \"localtime\".",
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
-			// vnc_port/vnc_password/vnc_resolution: Sylve's ModifyVNC
+			// vnc_port/vnc_resolution/vnc_wait: Sylve's ModifyVNC
 			// requires VNCEnabled/VNCPort/VNCResolution/VNCPassword/
-			// VNCWait/PCIDevices ALL together, none omittable -- and
-			// this resource doesn't track vnc_enabled/vnc_wait/
-			// pci_devices at all, so a partial call would risk silently
-			// resetting whichever of those the live VM actually has.
-			// RequiresReplace here (rather than wiring a half-correct
-			// endpoint call) is the safe choice until this resource
-			// grows those three fields too. Found alongside the same
-			// bug on serial/tpm_emulation/qemu_guest_agent/
-			// start_at_boot/start_order (2026-09-01, see above and the
-			// dev notes) -- these three had it too (description claimed
-			// replacement, no modifier actually did it).
+			// VNCWait ALL together, none omittable -- and this resource
+			// doesn't track vnc_enabled at all, so a partial call would
+			// risk silently resetting it. RequiresReplace here (rather
+			// than wiring a half-correct endpoint call) is the safe
+			// choice until this resource grows that field too. Found
+			// alongside the same bug on serial/tpm_emulation/
+			// qemu_guest_agent/start_at_boot/start_order (2026-09-01,
+			// see above and the dev notes) -- these three had it too
+			// (description claimed replacement, no modifier actually
+			// did it). vnc_password and vnc_bind USED to be in this
+			// group too -- see their own comments below for why they
+			// were moved to an in-place update path 2026-09-04.
+			//
+			// CORRECTION 2026-09-04, adding vnc_bind below: this
+			// comment used to also list "PCIDevices" as part of that
+			// all-or-nothing request. Checked directly against source
+			// (internal/interfaces/services/libvirt/vm.go,
+			// ModifyVNCRequest) while wiring vnc_bind -- that struct has
+			// no pciDevices field at all, on v0.3.0 or apparently ever;
+			// wherever that claim originally came from, it wasn't this
+			// endpoint. vnc_enabled is genuinely required and genuinely
+			// untracked though, which is why vnc_bind's own Update path
+			// (see SetVMVNC in sylveclient) re-fetches the live VM to
+			// echo vnc_enabled back rather than adding yet another
+			// schema attribute just to satisfy one field.
 			"vnc_port": schema.Int64Attribute{
 				Required:      true,
 				Description:   "VNC display port. Required by Sylve's own API (zero is rejected). Changing it recreates the VM.",
 				PlanModifiers: []planmodifier.Int64{int64planmodifier.RequiresReplace()},
 			},
+			// vnc_bind and vnc_password (below) are the two exceptions to
+			// the RequiresReplace group above: unlike vnc_port/
+			// vnc_resolution/vnc_wait, changing either updates in place
+			// via SetVMVNC rather than recreating the VM. That's
+			// deliberate, not an oversight -- rebinding VNC away from
+			// loopback, or fixing a wrong password, are both things
+			// worth doing on an already-populated, already-migrated VM
+			// without destroying and recreating it (this is exactly the
+			// scenario that motivated adding vnc_bind: rid 250, the
+			// "dev" migration target, needed VNC reachable from its own
+			// guest LAN for testing before cutover, and this VM's
+			// prevent_destroy + its ~6GB of already-rsynced state made a
+			// RequiresReplace round-trip a non-starter). Sylve's own
+			// ModifyVNC still requires the VM be Shutoff first (see
+			// SetVMVNC's own doc comment) -- Update() below stops the
+			// VM, applies the change, and starts it back up again, so
+			// changing either causes a brief guest reboot, just not a
+			// destroy/recreate.
+			"vnc_bind": schema.StringAttribute{
+				Optional: true,
+				Computed: true,
+				Description: "IP address the VNC listener binds to on the hypervisor. Defaults to " +
+					"\"127.0.0.1\" (Sylve's own default) if left unset -- loopback-only, since an " +
+					"empty vnc_password means no auth at all, and an externally-reachable " +
+					"unauthenticated console is a real exposure. Set to a LAN-facing address " +
+					"(e.g. the hypervisor's own guest-LAN IP) only when you specifically need VNC " +
+					"reachable from off-host, and prefer that over 0.0.0.0 given the lack of " +
+					"built-in auth. Updated in place -- see this attribute's own comment above.",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
+			// vnc_password is the second exception to the RequiresReplace
+			// group (see vnc_bind above) -- also updated in place via the
+			// same SetVMVNC/stop-start dance, added the same day for a
+			// real reason: THERE IS NO MAGIC "disabled" VALUE. Confirmed
+			// against source (internal/services/libvirt/
+			// libvirt_hardware.go, updateVNC): `if vncPassword != ""
+			// { graphicsEl.CreateAttr("passwd", vncPassword) }` -- ANY
+			// non-empty string, including the literal word "disabled",
+			// becomes the actual VNC password. Found live 2026-09-04:
+			// every sylve_vm in this fleet used vnc_password = "disabled"
+			// clearly intending "no auth", and every one of them has
+			// actually had a real (if silly) password of "disabled" the
+			// whole time. An empty string is the only way to get genuine
+			// unauthenticated VNC. This was RequiresReplace until the
+			// same day, which would have meant destroying and recreating
+			// every VM in the fleet just to fix a string -- clearly not
+			// viable for already-populated, prevent_destroy'd VMs, hence
+			// wiring it through the in-place path instead.
 			"vnc_password": schema.StringAttribute{
-				Optional:      true,
-				Computed:      true,
-				Sensitive:     true,
-				Description:   "VNC password. Changing it recreates the VM (see vnc_port).",
-				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown(), stringplanmodifier.RequiresReplace()},
+				Optional:  true,
+				Computed:  true,
+				Sensitive: true,
+				Description: "VNC password. An EMPTY STRING means no authentication -- there is no " +
+					"magic keyword for this (a literal \"disabled\" becomes the actual password " +
+					"\"disabled\", not a request to disable auth; confirmed against Sylve's own " +
+					"source). Updated in place via SetVMVNC (see vnc_bind's own comment for the " +
+					"stop/modify/start mechanics) -- does NOT recreate the VM.",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"vnc_resolution": schema.StringAttribute{
 				Optional:      true,
@@ -360,6 +427,14 @@ func (r *vmResource) Create(ctx context.Context, req resource.CreateRequest, res
 	if vncResolution == "" {
 		vncResolution = "1024x768"
 	}
+	// Same explicit-default-if-empty treatment as vncResolution above --
+	// never rely on whatever Sylve does with an implicit/omitted value,
+	// always send something valid ourselves. "127.0.0.1" matches
+	// Sylve's own documented default (loopback-only).
+	vncBind := plan.VNCBind.ValueString()
+	if vncBind == "" {
+		vncBind = "127.0.0.1"
+	}
 
 	created, err := r.client.CreateVM(ctx, sylveclient.VM{
 		Name:                   plan.Name.ValueString(),
@@ -371,6 +446,7 @@ func (r *vmResource) Create(ctx context.Context, req resource.CreateRequest, res
 		CPUThreads:             int(plan.CPUThreads.ValueInt64()),
 		TimeOffset:             timeOffset,
 		VNCPort:                int(plan.VNCPort.ValueInt64()),
+		VNCBind:                vncBind,
 		VNCPassword:            plan.VNCPassword.ValueString(),
 		VNCResolution:          vncResolution,
 		VNCWait:                plan.VNCWait.ValueBool(),
@@ -401,6 +477,7 @@ func (r *vmResource) Create(ctx context.Context, req resource.CreateRequest, res
 	plan.RID = types.Int64Value(int64(created.RID))
 	plan.Description = types.StringValue(created.Description)
 	plan.TimeOffset = types.StringValue(created.TimeOffset)
+	plan.VNCBind = types.StringValue(created.VNCBind)
 	plan.VNCPassword = types.StringValue(created.VNCPassword)
 	plan.VNCResolution = types.StringValue(created.VNCResolution)
 	plan.VNCWait = types.BoolValue(created.VNCWait)
@@ -441,6 +518,7 @@ func (r *vmResource) Read(ctx context.Context, req resource.ReadRequest, resp *r
 	state.CPUThreads = types.Int64Value(int64(vm.CPUThreads))
 	state.TimeOffset = types.StringValue(vm.TimeOffset)
 	state.VNCPort = types.Int64Value(int64(vm.VNCPort))
+	state.VNCBind = types.StringValue(vm.VNCBind)
 	state.VNCPassword = types.StringValue(vm.VNCPassword)
 	state.VNCResolution = types.StringValue(vm.VNCResolution)
 	state.VNCWait = types.BoolValue(vm.VNCWait)
@@ -530,13 +608,62 @@ func (r *vmResource) Update(ctx context.Context, req resource.UpdateRequest, res
 			return
 		}
 	}
-	if plan.CloudInitData.ValueString() != state.CloudInitData.ValueString() ||
+	// vnc_bind/vnc_password AND cloud_init_data/metadata/network_config all
+	// require the VM be Shutoff to change (confirmed via source doc
+	// comments on both ModifyVNC -- "Replace the VNC configuration of a
+	// shut-off virtual machine" -- and ModifyCloudInitData -- "...for a
+	// shut-off virtual machine"). These two groups used to be two
+	// separate blocks, each with its own stop/start pair -- found live,
+	// 2026-09-04, the hard way: when BOTH groups changed in the same
+	// apply, the VNC block's own stop->modify->START already brought the
+	// VM back to Running by the time the cloud-init block ran, so ITS
+	// call 409'd with domain_state_not_shutoff even though nothing about
+	// the cloud-init change itself was wrong (SetVMCloudInit had this
+	// Shutoff requirement all along -- it just had never been exercised
+	// on an already-running VM in the same apply as a VNC change until
+	// that day). Fixed by computing one shared "does anything here need
+	// Shutoff" flag, stopping ONCE, applying whichever of the two groups
+	// actually changed, and starting back up ONCE -- avoids the double
+	// restart a naive fix (give cloud-init its own stop/start pair too)
+	// would have caused, and avoids this exact collision for good.
+	needsVNCUpdate := plan.VNCBind.ValueString() != state.VNCBind.ValueString() ||
+		plan.VNCPassword.ValueString() != state.VNCPassword.ValueString()
+	needsCloudInitUpdate := plan.CloudInitData.ValueString() != state.CloudInitData.ValueString() ||
 		plan.CloudInitMetaData.ValueString() != state.CloudInitMetaData.ValueString() ||
-		plan.CloudInitNetworkConfig.ValueString() != state.CloudInitNetworkConfig.ValueString() {
-		if err := r.client.SetVMCloudInit(ctx, rid,
-			plan.CloudInitData.ValueString(), plan.CloudInitMetaData.ValueString(), plan.CloudInitNetworkConfig.ValueString(),
-		); err != nil {
-			resp.Diagnostics.AddError("Error updating Sylve VM cloud-init data", err.Error())
+		plan.CloudInitNetworkConfig.ValueString() != state.CloudInitNetworkConfig.ValueString()
+
+	if needsVNCUpdate || needsCloudInitUpdate {
+		if err := r.client.DoVMAction(ctx, rid, sylveclient.VMActionStop); err != nil {
+			resp.Diagnostics.AddError("Error stopping Sylve VM for VNC/cloud-init update", err.Error())
+			return
+		}
+		if err := r.client.WaitForDomainStatus(ctx, rid, "Shutoff", vmPowerWaitTimeout); err != nil {
+			resp.Diagnostics.AddError("Error waiting for Sylve VM to stop for VNC/cloud-init update", err.Error())
+			return
+		}
+		if needsVNCUpdate {
+			if err := r.client.SetVMVNC(ctx, rid,
+				int(plan.VNCPort.ValueInt64()), plan.VNCBind.ValueString(), plan.VNCResolution.ValueString(),
+				plan.VNCPassword.ValueString(), plan.VNCWait.ValueBool(),
+			); err != nil {
+				resp.Diagnostics.AddError("Error updating Sylve VM VNC settings", err.Error())
+				return
+			}
+		}
+		if needsCloudInitUpdate {
+			if err := r.client.SetVMCloudInit(ctx, rid,
+				plan.CloudInitData.ValueString(), plan.CloudInitMetaData.ValueString(), plan.CloudInitNetworkConfig.ValueString(),
+			); err != nil {
+				resp.Diagnostics.AddError("Error updating Sylve VM cloud-init data", err.Error())
+				return
+			}
+		}
+		if err := r.client.DoVMAction(ctx, rid, sylveclient.VMActionStart); err != nil {
+			resp.Diagnostics.AddError("Error restarting Sylve VM after VNC/cloud-init update", err.Error())
+			return
+		}
+		if err := r.client.WaitForDomainStatus(ctx, rid, "Running", vmPowerWaitTimeout); err != nil {
+			resp.Diagnostics.AddError("Error waiting for Sylve VM to restart after VNC/cloud-init update", err.Error())
 			return
 		}
 	}

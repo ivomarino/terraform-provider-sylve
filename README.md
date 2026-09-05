@@ -49,6 +49,50 @@ provider_installation {
 With `dev_overrides` active, `terraform init` won't (and can't) actually
 download anything for this provider — that's expected.
 
+### Using this with OpenTofu instead of Terraform
+
+Confirmed working (tested: OpenTofu 1.12.6), but `dev_overrides` alone
+is **not** enough — OpenTofu doesn't skip dependency-lock-file
+validation for a dev-override'd provider the way Terraform does, so
+`tofu init`/`tofu plan` fail with `Inconsistent dependency lock file`
+for any provider (like this one) that isn't published anywhere yet.
+This is a confirmed, currently open upstream bug
+([opentofu/opentofu#1715](https://github.com/opentofu/opentofu/issues/1715)),
+not anything specific to this provider.
+
+**Fix**: add a real `filesystem_mirror` alongside `dev_overrides` — a
+mirror is a legitimate installation method with its own real lock-file
+entry, so it doesn't hit the bug above:
+
+```bash
+mkdir -p ~/.local/share/tofu-provider-mirror/registry.opentofu.org/ivomarino/sylve/0.1.0/linux_amd64
+cp bin/terraform-provider-sylve \
+  ~/.local/share/tofu-provider-mirror/registry.opentofu.org/ivomarino/sylve/0.1.0/linux_amd64/terraform-provider-sylve_v0.1.0
+```
+
+```hcl
+# ~/.terraformrc (OpenTofu reads the same file)
+provider_installation {
+  # dev_overrides must come first in the file if you keep both blocks
+  # (for Terraform compatibility) -- OpenTofu errors otherwise.
+  dev_overrides {
+    "registry.terraform.io/ivomarino/sylve" = "/absolute/path/to/terraform-provider-sylve/bin"
+  }
+  filesystem_mirror {
+    path    = "/home/you/.local/share/tofu-provider-mirror"
+    include = ["registry.opentofu.org/ivomarino/sylve"]
+  }
+  direct {
+    exclude = ["registry.opentofu.org/ivomarino/sylve"]
+  }
+}
+```
+
+`tofu init` will then succeed and write a real lock-file entry; `tofu
+plan`/`tofu apply` work normally from there. Once this provider is
+published to a real registry, none of this — `dev_overrides` or the
+mirror — will be necessary any more.
+
 ## Provider configuration
 
 ```hcl
